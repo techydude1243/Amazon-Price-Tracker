@@ -14,6 +14,9 @@ import logging
 
 logging.basicConfig(level=logging.DEBUG)
 
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+HEADERS = {'User-Agent': USER_AGENT}
+
 # Function to check price using Selenium for dynamic content
 def check_price(url):
     options = Options()
@@ -30,25 +33,45 @@ def check_price(url):
 
         # Wait for the price element to load
         price_element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CLASS_NAME, 'a-price-whole'))
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'span.a-price-whole'))
         )
 
         price_text = price_element.text.replace(',', '').strip()
         price = float(price_text)
 
-        logging.info(f"Price found: ₹{price}")
+        logging.info(f"Price found using Selenium: ₹{price}")
         return price
 
     except Exception as e:
-        logging.error(f"Error checking price: {str(e)}")
-        raise
-
+        logging.error(f"Selenium failed, trying requests: {str(e)}")
+        return check_price_requests(url)  # Fallback to requests
+    
     finally:
         driver.quit()
 
-# Function to send email (supports both Gmail and Outlook)
+# Function to check price using requests and BeautifulSoup
+def check_price_requests(url):
+    try:
+        response = requests.get(url, headers=HEADERS)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        price_element = soup.select_one('span.a-price-whole')
+        if not price_element:
+            logging.error("Price element not found in requests method.")
+            return None
+
+        price_text = price_element.get_text(strip=True).replace(',', '')
+        price = float(price_text)
+        logging.info(f"Price found using requests: ₹{price}")
+        return price
+    except Exception as e:
+        logging.error(f"Requests method failed: {str(e)}")
+        return None
+
+# Function to send email
 def send_email(to_email, subject, body):
-    smtp_server = os.environ.get("SMTP_SERVER")  # smtp.gmail.com or smtp.office365.com
+    smtp_server = os.environ.get("SMTP_SERVER")
     port = os.environ.get("SMTP_PORT", 587)
     sender_email = os.environ.get("EMAIL_USER")
     password = os.environ.get("EMAIL_PASS")
@@ -73,7 +96,6 @@ def send_email(to_email, subject, body):
         server.quit()
 
         logging.info(f"Email successfully sent to {to_email}")
-
     except smtplib.SMTPAuthenticationError as e:
         logging.error(f"SMTP Authentication failed: {str(e)}")
         raise ValueError("Failed to authenticate with SMTP server. Check your credentials.")
